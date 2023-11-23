@@ -1,0 +1,16 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MiviaDesktop", "MiviaDesktop\MiviaDesktop.csproj", "{3D6A93FD-7BDE-4920-96D4-2FB113E1CF60}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3D6A93FD-7BDE-4920-96D4-2FB113E1CF60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D6A93FD-7BDE-4920-96D4-2FB113E1CF60}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D6A93FD-7BDE-4920-96D4-2FB113E1CF60}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D6A93FD-7BDE-4920-96D4-2FB113E1CF60}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

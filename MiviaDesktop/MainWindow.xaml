@@ -1,0 +1,45 @@
+﻿<Window x:Class="MiviaDesktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Loaded="Window_Loaded"
+        Title="MiViA Desktop" Height="350" Width="400" SizeToContent="Height" >
+    <StackPanel HorizontalAlignment="Stretch" x:Name="spMain" Margin="10">
+        <GroupBox Header="Access Token">
+            <PasswordBox Margin="10" x:Name="pbPassword" PasswordChanged="pbPassword_PasswordChanged" />
+        </GroupBox>
+        <GroupBox Header="Monitored directories">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="100" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Margin="10" Grid.Column="0" x:Name="tbtInputDirectory" Text="{Binding Settings.InputDirectory}" />
+                    <Button Content="Browse" Click="btnBrowse_Click" Grid.Column="1" Margin="10" />
+                </Grid>
+                <ListBox Grid.Row="1" Margin="10" ItemsSource="{Binding Items}" SelectionMode="Extended" x:Name="lbItems">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Text}" IsChecked="{Binding IsSelected}" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </GroupBox>
+        <StackPanel HorizontalAlignment="right" Margin="10">
+            <Grid>
+                <Button Grid.Column="0" Click="btnSave_Click">Save</Button>
+            </Grid>
+        </StackPanel>
+    </StackPanel>
+
+</Window>
