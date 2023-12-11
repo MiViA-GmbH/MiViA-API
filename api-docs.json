@@ -1,0 +1,690 @@
+{
+    "components": {
+        "schemas": {
+            "CreateReportDto": {
+                "properties": {
+                    "jobsIds": {
+                        "description": "IDs of the jobs",
+                        "items": {
+                            "format": "uuid",
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "tzOffset": {
+                        "default": 0,
+                        "description": "Client time zone offset in minutes compared to UTC time",
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "jobsIds"
+                ],
+                "type": "object"
+            },
+            "ExecuteRequestDto": {
+                "properties": {
+                    "imageIds": {
+                        "description": "IDs of the images",
+                        "items": {
+                            "format": "uuid",
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "modelId": {
+                        "description": "ID of the model",
+                        "format": "uuid",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "modelId",
+                    "imageIds"
+                ],
+                "type": "object"
+            },
+            "ImageDto": {
+                "properties": {
+                    "createdAt": {
+                        "description": "Date of upload in ISO format",
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "ID of the image",
+                        "format": "uuid",
+                        "type": "string"
+                    },
+                    "orginalFilename": {
+                        "description": "Original filename",
+                        "type": "string"
+                    },
+                    "validated": {
+                        "description": "Whether the image has been validated properly by the system",
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "id",
+                    "createdAt",
+                    "orginalFilename",
+                    "validated"
+                ],
+                "type": "object"
+            },
+            "ModelDto": {
+                "properties": {
+                    "displayName": {
+                        "description": "Display name of the model",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "ID of the model",
+                        "format": "uuid",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Internal name of the model",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "displayName"
+                ],
+                "type": "object"
+            },
+            "UserJobDto": {
+                "properties": {
+                    "archived": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/"
+                            }
+                        ],
+                        "description": "Is the job moved to the archive?"
+                    },
+                    "createdAt": {
+                        "description": "Date when the job was created in ISO format",
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "finishedAt": {
+                        "description": "Date when the job was finished in ISO format",
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "ID of the model",
+                        "format": "uuid",
+                        "type": "string"
+                    },
+                    "imageId": {
+                        "description": "ID of the image",
+                        "format": "uuid",
+                        "type": "string"
+                    },
+                    "modelId": {
+                        "description": "ID of the model",
+                        "format": "uuid",
+                        "type": "string"
+                    },
+                    "outdated": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/"
+                            }
+                        ],
+                        "description": "Is the job outdated? Outdated jobs were created with older model version."
+                    },
+                    "result": {
+                        "description": "Model result. The structure depends on the model type.",
+                        "type": "any"
+                    },
+                    "startedAt": {
+                        "description": "Date when the job was started in ISO format",
+                        "format": "date-time",
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status of the job",
+                        "enum": [
+                            "CACHED",
+                            "NEW",
+                            "FAILED",
+                            "SUCCESS",
+                            "PENDING"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "imageId",
+                    "finishedAt",
+                    "startedAt",
+                    "createdAt",
+                    "status",
+                    "result",
+                    "modelId",
+                    "archived",
+                    "outdated"
+                ],
+                "type": "object"
+            },
+            "uuid": {
+                "maxLength": 36,
+                "minLength": 36,
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+            }
+        },
+        "securitySchemes": {
+            "api_key": {
+                "description": "MiViA access key",
+                "in": "header",
+                "name": "authorization",
+                "type": "apiKey"
+            }
+        }
+    },
+    "info": {
+        "contact": {
+        },
+        "description": "MiViA API description",
+        "title": "MiViA API",
+        "version": "0.35.0"
+    },
+    "openapi": "3.0.0",
+    "paths": {
+        "/api/image": {
+            "get": {
+                "operationId": "ImageController_listUserImages",
+                "parameters": [
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/ImageDto"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "List of images"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "List uploaded images",
+                "tags": [
+                    "Images"
+                ]
+            },
+            "post": {
+                "operationId": "ImageController_uploadImages",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "format": "uuid",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "properties": {
+                                    "files": {
+                                        "items": {
+                                            "format": "binary",
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "forced": {
+                                        "default": false,
+                                        "description": "Mark the files you upload as forced uploads, which means that they don't meet our quality requirements.",
+                                        "type": "boolean"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/ImageDto"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "List of uploaded images"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "Upload image",
+                "tags": [
+                    "Images"
+                ]
+            }
+        },
+        "/api/image/{id}": {
+            "delete": {
+                "operationId": "ImageController_remove",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "Delete image",
+                "tags": [
+                    "Images"
+                ]
+            }
+        },
+        "/api/image/public/{filename}": {
+            "get": {
+                "operationId": "ImageController_getPublicImage",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "filename",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/jobs": {
+            "get": {
+                "operationId": "JobsController_getJobs",
+                "parameters": [
+                    {
+                        "description": "Show only archived jobs",
+                        "in": "query",
+                        "name": "archived",
+                        "required": false,
+                        "schema": {
+                            "default": false,
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "description": "Filter by model ID",
+                        "in": "query",
+                        "name": "modelId",
+                        "required": false,
+                        "schema": {
+                            "format": "uuid",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Sort by field",
+                        "in": "query",
+                        "name": "sortBy",
+                        "required": false,
+                        "schema": {
+                            "default": "createdAt",
+                            "type": "createdAt | filename"
+                        }
+                    },
+                    {
+                        "description": "Sort order",
+                        "in": "query",
+                        "name": "sortOrder",
+                        "required": false,
+                        "schema": {
+                            "default": "desc",
+                            "type": "asc | desc"
+                        }
+                    },
+                    {
+                        "description": "Page number",
+                        "in": "query",
+                        "name": "page",
+                        "required": false,
+                        "schema": {
+                            "default": 1,
+                            "type": "number"
+                        }
+                    },
+                    {
+                        "description": "Page size",
+                        "in": "query",
+                        "name": "pageSize",
+                        "required": false,
+                        "schema": {
+                            "default": 10,
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "type": "number"
+                        }
+                    },
+                    {
+                        "description": "Filter by project ID",
+                        "in": "query",
+                        "name": "projectId",
+                        "required": false,
+                        "schema": {
+                            "format": "uuid",
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "Return only IDs of the jobs",
+                        "in": "query",
+                        "name": "idOnly",
+                        "required": false,
+                        "schema": {
+                            "default": false,
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/UserJobDto"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "User job info",
+                        "headers": {
+                            "X-Total-Count": {
+                                "description": "Total number of users jobs"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "List user jobs",
+                "tags": [
+                    "Jobs"
+                ]
+            },
+            "post": {
+                "operationId": "JobsController_createJobs",
+                "parameters": [
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExecuteRequestDto"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/UserJobDto"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "User job details",
+                        "headers": {
+                            "X-Total-Count": {
+                                "description": "Total number of users jobs"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "Schedule computation job",
+                "tags": [
+                    "Jobs"
+                ]
+            }
+        },
+        "/api/jobs/{id}": {
+            "get": {
+                "operationId": "JobsController_getJob",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "format": "uuid",
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserJobDto"
+                                }
+                            }
+                        },
+                        "description": "Job details"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "404": {
+                        "description": "Job not found"
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "Get job details",
+                "tags": [
+                    "Jobs"
+                ]
+            }
+        },
+        "/api/reports/csv": {
+            "post": {
+                "operationId": "ReportingController_createCsv",
+                "parameters": [
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateReportDto"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": ""
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "Create csv report",
+                "tags": [
+                    "Reporting"
+                ]
+            }
+        },
+        "/api/reports/pdf": {
+            "post": {
+                "operationId": "ReportingController_createPdf",
+                "parameters": [
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateReportDto"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": ""
+                    }
+                },
+                "security": [
+                    {
+                        "apiKey": [
+                        ]
+                    }
+                ],
+                "summary": "Create pdf report",
+                "tags": [
+                    "Reporting"
+                ]
+            }
+        },
+        "/api/reports/tmp": {
+            "post": {
+                "operationId": "ReportingController_tmp",
+                "parameters": [
+                ],
+                "responses": {
+                    "201": {
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/settings/models": {
+            "get": {
+                "operationId": "SettingsController_getModels",
+                "parameters": [
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/ModelDto"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "List of available models"
+                    }
+                },
+                "summary": "List available models",
+                "tags": [
+                    "Models"
+                ]
+            }
+        }
+    },
+    "servers": [
+    ],
+    "tags": [
+        {
+            "description": "",
+            "name": "Images"
+        },
+        {
+            "description": "",
+            "name": "Jobs"
+        },
+        {
+            "description": "",
+            "name": "Reporting"
+        },
+        {
+            "description": "",
+            "name": "Models"
+        }
+    ]
+}
