@@ -18,6 +18,7 @@ public enum JobStatus
     CACHED,
     NEW,
     FAILED,
+    PENDING,
 }
 
 public partial class Image
