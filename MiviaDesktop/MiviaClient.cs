@@ -1,9 +1,9 @@
 ﻿using System;
-using System.Net.Http;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using MiviaDesktop.Entities;
@@ -78,22 +78,32 @@ namespace MiviaDesktop
 
         public async Task<RemoteImage?> UploadFile(string filePath)
         {
+            // Read the file content as bytes
             byte[] data = await File.ReadAllBytesAsync(filePath);
 
-            // Create a ByteArrayContent object and add it to the MultipartFormDataContent
+            // Create ByteArrayContent with the file data
             var fileContent = new ByteArrayContent(data);
+
+            // Get the original file name
             var fileName = Path.GetFileName(filePath);
-            fileContent.Headers.ContentDisposition = new System.Net.Http.Headers.ContentDispositionHeaderValue("form-data")
+
+            // Set the content disposition headers
+            fileContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
             {
                 Name = "files",
-                FileName = fileName,
+                FileName = null,
+                FileNameStar = fileName
             };
 
-            // Create a new MultipartFormDataContent object and add the ByteArrayContent to it
-            var content = new MultipartFormDataContent();
-            content.Add(fileContent);
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
 
-            // Add forced field
+            // Create a MultipartFormDataContent object
+            var content = new MultipartFormDataContent
+            {
+                { fileContent, "files", fileName } // Explicitly add the file name
+            };
+
+            // Add the forced field
             content.Add(new StringContent("false"), "forced");
 
             // Send the POST request
@@ -146,12 +156,19 @@ namespace MiviaDesktop
 
         public void SaveError(string path)
         {
-            using (var fs = new FileStream(path + ".txt", FileMode.CreateNew))
+            try
             {
-                using (var sw = new StreamWriter(fs))
+                using (var fs = new FileStream(path + ".txt", FileMode.CreateNew))
                 {
-                    sw.Write("Error occurred during processing the image.");
+                    using (var sw = new StreamWriter(fs))
+                    {
+                        sw.Write("Error occurred during processing the image.");
+                    }
                 }
+            }
+            catch (Exception)
+            {
+                // ignored
             }
         }
 
