@@ -36,6 +36,7 @@ public sealed class ErrorLogger
                     }
                 }
             }
+
             return _instance;
         }
     }
@@ -52,9 +53,16 @@ public sealed class ErrorLogger
         string jsonData = System.Text.Json.JsonSerializer.Serialize(logEntry);
 
         // Append the log entry to the log file
-        using (StreamWriter writer = File.AppendText(_logFilePath))
+        try
         {
-            writer.WriteLine(jsonData);
+            using (StreamWriter writer = File.AppendText(_logFilePath))
+            {
+                writer.WriteLine(jsonData);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Logs cannot be written to the log file
         }
     }
 }
