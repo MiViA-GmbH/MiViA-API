@@ -31,7 +31,6 @@ public partial class RemoteJob
     // Nested objects (optional - will be null if not included in JSON)
     [JsonPropertyName("image")] public Image? Image { get; set; }
     [JsonPropertyName("model")] public Model? Model { get; set; }
-    [JsonPropertyName("result")] public Result? Result { get; set; }
     [JsonPropertyName("owner")] public Owner? Owner { get; set; }
     [JsonPropertyName("executor")] public Executor? Executor { get; set; }
     [JsonPropertyName("masks")] public List<Mask>? Masks { get; set; }
@@ -83,50 +82,7 @@ public partial class Model
     [JsonPropertyName("version")] public string? Version { get; set; }
 }
 
-public partial class Result
-{
-    [JsonPropertyName("id")] public Guid Id { get; set; }
-    [JsonPropertyName("sourceImageHash")] public string? SourceImageHash { get; set; }
-    [JsonPropertyName("modelId")] public Guid ModelId { get; set; }
-    [JsonPropertyName("modelVersion")] public string ModelVersion { get; set; } = null!;
-    [JsonPropertyName("obsolete")] public bool Obsolete { get; set; }
-    [JsonPropertyName("results")] public List<ResultItem>? Results { get; set; }
-    [JsonPropertyName("feedback")] public List<Feedback>? Feedback { get; set; }
-    [JsonPropertyName("createdAt")] public DateTime CreatedAt { get; set; }
-    [JsonPropertyName("meta")] public ResultMeta? Meta { get; set; }
-    [JsonPropertyName("hasCustomization")] public bool HasCustomization { get; set; }
-}
 
-public partial class ResultItem
-{
-    [JsonPropertyName("type")] public string Type { get; set; } = null!;
-    [JsonPropertyName("filename")] public string? Filename { get; set; }
-    [JsonPropertyName("data")] public List<DataPoint>? Data { get; set; }
-    [JsonPropertyName("label")] public string? Label { get; set; }
-    [JsonPropertyName("xLabel")] public string? XLabel { get; set; }
-    [JsonPropertyName("yLabel")] public string? YLabel { get; set; }
-}
-
-public partial class DataPoint
-{
-    [JsonPropertyName("x")] public double? X { get; set; }
-    [JsonPropertyName("y")] public double? Y { get; set; }
-    [JsonPropertyName("color")] public string? Color { get; set; }
-    [JsonPropertyName("label")] public string? Label { get; set; }
-    [JsonPropertyName("value")] public double? Value { get; set; }
-}
-
-public partial class Feedback
-{
-    [JsonPropertyName("name")] public string Name { get; set; } = null!;
-    [JsonPropertyName("score")] public double Score { get; set; }
-    [JsonPropertyName("value")] public bool Value { get; set; }
-}
-
-public partial class ResultMeta
-{
-    [JsonPropertyName("pix_per_um")] public int PixPerUm { get; set; }
-}
 
 public partial class Owner
 {
