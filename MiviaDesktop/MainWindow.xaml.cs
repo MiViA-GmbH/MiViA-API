@@ -78,7 +78,8 @@ namespace MiviaDesktop
             var toRemove = new HashSet<RemoteJob>();
             foreach (var job in _jobs)
             {
-                var modelName = job.Model.DisplayName.Replace(" ", "_");
+                var model = job.Model;
+                var modelName = model.DisplayName.Replace(" ", "_");
                 var path = Path.Join(Settings.InputDirectory, Path.GetFileNameWithoutExtension(job.Image.OrginalFilename) + "-" + modelName);
                 try
                 {
@@ -90,7 +91,7 @@ namespace MiviaDesktop
                 {
                     _taskbarIcon.ShowError($"Error while calculating results for image {job.Image.OrginalFilename}");
                     ErrorLogger.Instance.LogError(exception.ToString());
-                    _client.SaveError(path);
+                    // _client.SaveError(path);
                 }
 
                 _taskbarIcon.ShowMessage($"Image {job.Image.OrginalFilename} has been processed");
@@ -187,7 +188,8 @@ namespace MiviaDesktop
                 {
                     var imageId = image.Id.ToString();
                     var modelId = model.Id;
-                    var job = await _client.RunModel(imageId, modelId);
+                    var submitedJob = await _client.RunModel(imageId, modelId);
+                    var job = await _client.GetJob(submitedJob.Id.ToString());
                     if (job == null) continue;
                     _jobs.Add(job);
                     _taskbarIcon.ShowMessage($"Image {job.Image.OrginalFilename} has been sent for processing");

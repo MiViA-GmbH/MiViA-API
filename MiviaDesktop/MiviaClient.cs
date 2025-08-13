@@ -61,7 +61,8 @@ namespace MiviaDesktop
             var jsonContent = JsonContent.Create(new
             {
                 imageIds = new[] { imageId },
-                modelId = modelId
+                modelId = modelId,
+                source = "API"
             });
             var response = await _client.PostAsync(ModelUri, jsonContent);
             if (!response.IsSuccessStatusCode)
@@ -125,16 +126,9 @@ namespace MiviaDesktop
 
         public async Task<bool> IsJobCompleted(string jobId)
         {
-            var response = await _client.GetAsync($"{ModelUri}/{jobId}");
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                throw new Exception(error);
-            }
-
-            var jsonResponse = await response.Content.ReadAsStringAsync();
-            var job = Serialization.Deserialize<RemoteJob>(jsonResponse);
+            var job = await GetJob(jobId);
             if (job.Status == JobStatus.FAILED) throw new Exception(job.Error);
+            if (job.Status == JobStatus.PENDING) return false;
             return job?.ResultId != null;
         }
 
@@ -175,6 +169,19 @@ namespace MiviaDesktop
         public void Dispose()
         {
             _client?.Dispose();
+        }
+
+        public async Task<RemoteJob> GetJob(string jobId)
+        {
+            var response = await _client.GetAsync($"{ModelUri}/{jobId}");
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                throw new Exception(error);
+            }
+
+            var jsonResponse = await response.Content.ReadAsStringAsync();
+            return Serialization.Deserialize<RemoteJob>(jsonResponse);
         }
     }
 }
