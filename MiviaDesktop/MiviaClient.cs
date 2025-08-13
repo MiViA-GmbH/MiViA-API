@@ -12,31 +12,34 @@ namespace MiviaDesktop
 {
     public class MiviaClient : IDisposable
     {
-        private string _accessToken;
-        private HttpClient _client;
+        private readonly string _accessToken;
+        private readonly HttpClient _client;
+        private readonly string _baseUrl;
+        private bool _disposed = false;
 
-        private static string _baseUrl = "https://app.mivia.ai";
+        private const string DefaultBaseUrl = "https://app.mivia.ai";
         private const string UploadUri = "/api/image";
-        private const string ModelsUri = "/api/settings/models";
+        private const string ModelsUri = "/api/settings/available-models";
         private const string ModelUri = "/api/jobs";
         private const string ReportUri = "/api/reports/pdf2";
 
-        public MiviaClient(string accessToken, string? baseUrl)
+        public string AccessToken => _accessToken;
+        public string BaseUrl => _baseUrl;
+
+        public MiviaClient(string accessToken, string? baseUrl = null)
         {
-            _baseUrl = baseUrl ?? _baseUrl;
-            _accessToken = accessToken;
-            _client = new HttpClient { BaseAddress = new Uri(_baseUrl) };
-            _client.DefaultRequestHeaders.Add("authorization", accessToken);
+            _baseUrl = baseUrl ?? DefaultBaseUrl;
+            _accessToken = accessToken ?? throw new ArgumentNullException(nameof(accessToken));
+            _client = new HttpClient { BaseAddress = new Uri(_baseUrl), Timeout = TimeSpan.FromSeconds(30) };
+            _client.DefaultRequestHeaders.Add("authorization", _accessToken);
         }
 
 
-        public static async Task<ModelSettings[]?> GetModels(string? baseUrl = null)
+        public async Task<ModelSettings[]?> GetModels()
         {
             try
             {
-                var tmpClient = new HttpClient { BaseAddress = new Uri(baseUrl ?? _baseUrl), Timeout = new TimeSpan(0, 0, 3) };
-
-                HttpResponseMessage response = await tmpClient.GetAsync(ModelsUri);
+                HttpResponseMessage response = await _client.GetAsync(ModelsUri);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -47,13 +50,16 @@ namespace MiviaDesktop
                     });
                     return modelSettings;
                 }
+                else
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    throw new Exception($"HTTP {response.StatusCode}: {error}");
+                }
             }
             catch (Exception)
             {
-                return null;
+                throw; // Re-throw to preserve original exception details
             }
-
-            return null;
         }
 
         public async Task<RemoteJob?> RunModel(string imageId, string modelId)
@@ -168,7 +174,20 @@ namespace MiviaDesktop
 
         public void Dispose()
         {
-            _client?.Dispose();
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    _client?.Dispose();
+                }
+                _disposed = true;
+            }
         }
 
         public async Task<RemoteJob> GetJob(string jobId)

@@ -26,13 +26,22 @@
                     <TextBox Margin="10" Grid.Column="0" x:Name="tbtInputDirectory" Text="{Binding Settings.InputDirectory}" />
                     <Button Content="Browse" Click="btnBrowse_Click" Grid.Column="1" Margin="10" />
                 </Grid>
-                <ListBox Grid.Row="1" Margin="10" ItemsSource="{Binding Items}" SelectionMode="Extended" x:Name="lbItems">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <CheckBox Content="{Binding Text}" IsChecked="{Binding IsSelected}" />
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <Grid Grid.Row="1" Margin="10">
+                    <ListBox ItemsSource="{Binding Items}" SelectionMode="Extended" x:Name="lbItems">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox Content="{Binding Text}" IsChecked="{Binding IsSelected}" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock x:Name="tbModelStatus" 
+                               Text="Enter your API key to load available models" 
+                               HorizontalAlignment="Center" 
+                               VerticalAlignment="Center" 
+                               Foreground="Gray" 
+                               FontStyle="Italic"
+                               Visibility="Visible" />
+                </Grid>
             </Grid>
         </GroupBox>
         <StackPanel HorizontalAlignment="right" Margin="10">

@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Configuration;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Net.Mime;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -28,7 +29,7 @@ namespace MiviaDesktop
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, IDisposable
     {
         public Settings Settings { get; set; }
 
@@ -40,6 +41,8 @@ namespace MiviaDesktop
 
         private List<RemoteJob> _jobs = new List<RemoteJob>();
         private Timer _jobsTimer = new Timer();
+        private Timer _apiKeyDebounceTimer = new Timer();
+        private bool _disposed = false;
 
         public ObservableCollection<SelectableItem> Items
         {
@@ -73,7 +76,7 @@ namespace MiviaDesktop
         {
             if (_client == null) return;
 
-            SetTaskbarActivityIcon();
+            await Dispatcher.InvokeAsync(SetTaskbarActivityIcon);
 
             var toRemove = new HashSet<RemoteJob>();
             foreach (var job in _jobs)
@@ -89,12 +92,12 @@ namespace MiviaDesktop
                 }
                 catch (Exception exception)
                 {
-                    _taskbarIcon.ShowError($"Error while calculating results for image {job.Image.OrginalFilename}");
+                    await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowError($"Error while calculating results for image {job.Image.OrginalFilename}"));
                     ErrorLogger.Instance.LogError(exception.ToString());
                     // _client.SaveError(path);
                 }
 
-                _taskbarIcon.ShowMessage($"Image {job.Image.OrginalFilename} has been processed");
+                await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowMessage($"Image {job.Image.OrginalFilename} has been processed"));
                 toRemove.Add(job);
             }
 
@@ -116,7 +119,17 @@ namespace MiviaDesktop
         private async void Window_Loaded(object sender, RoutedEventArgs e)
         {
             LoadSettings();
-            await LoadDataAsync();
+            InitApiKeyDebounceTimer();
+            
+            if (ValidateApiKey())
+            {
+                await LoadModelsAsync();
+            }
+            else
+            {
+                ShowApiKeyRequiredState();
+            }
+            
             InitWatcher();
             InitClient();
             InitJobTimer();
@@ -131,39 +144,127 @@ namespace MiviaDesktop
             _jobsTimer.Enabled = true;
         }
 
-        private async Task LoadDataAsync()
+        private void InitApiKeyDebounceTimer()
         {
-            // Fetch models
-            var models = await MiviaClient.GetModels(Settings.ServerUrl);
-            if (models == null)
+            _apiKeyDebounceTimer.Interval = 1000; // 1 second debounce
+            _apiKeyDebounceTimer.Elapsed += async (sender, e) =>
             {
-                // Show message box with error
-                MessageBox.Show("Error retrieving models. Check your Internet connection.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                ErrorLogger.Instance.LogError("Error fetching models. Timeout or server error.");
+                _apiKeyDebounceTimer.Stop();
+                await Dispatcher.InvokeAsync(async () => await LoadModelsAsync());
+            };
+            _apiKeyDebounceTimer.AutoReset = false;
+        }
+
+        private bool ValidateApiKey()
+        {
+            return !string.IsNullOrWhiteSpace(Settings.AccessToken);
+        }
+
+        private void ShowApiKeyRequiredState()
+        {
+            tbModelStatus.Text = "Enter your API key to load available models";
+            tbModelStatus.Visibility = Visibility.Visible;
+            lbItems.Visibility = Visibility.Collapsed;
+        }
+
+        private void ShowLoadingState()
+        {
+            tbModelStatus.Text = "Loading models...";
+            tbModelStatus.Visibility = Visibility.Visible;
+            lbItems.Visibility = Visibility.Collapsed;
+        }
+
+        private void ShowErrorState(string errorMessage)
+        {
+            tbModelStatus.Text = $"Error: {errorMessage}";
+            tbModelStatus.Visibility = Visibility.Visible;
+            lbItems.Visibility = Visibility.Collapsed;
+        }
+
+        private void ShowModelsLoadedState()
+        {
+            tbModelStatus.Visibility = Visibility.Collapsed;
+            lbItems.Visibility = Visibility.Visible;
+        }
+
+        private void ClearModels()
+        {
+            Items.Clear();
+            ShowApiKeyRequiredState();
+        }
+
+        private async Task LoadModelsAsync()
+        {
+            if (!ValidateApiKey())
+            {
+                ClearModels();
                 return;
             }
 
-            foreach (var model in models)
-            {
-                Items.Add(new SelectableItem { Text = model.DisplayName, InternalName = model.Name, IsSelected = false, Id = model.Id });
-            }
+            SetUIState(UIState.Loading);
 
-            // Select models based on Settings 
-            if (Settings.SelectedModels == null) return;
-            foreach (var item in Items)
+            try
             {
-                if (Settings.SelectedModels.Contains(item.InternalName))
+                // Ensure we have a client instance with the current API key
+                InitClient();
+                if (_client == null)
                 {
-                    item.IsSelected = true;
+                    SetUIState(UIState.Error, "Failed to initialize API client.");
+                    return;
                 }
+
+                var models = await _client.GetModels();
+                if (models == null)
+                {
+                    SetUIState(UIState.Error, "Unable to retrieve models. Check your Internet connection.");
+                    ErrorLogger.Instance.LogError("Error fetching models. Timeout or server error.");
+                    return;
+                }
+
+                Items.Clear();
+                foreach (var model in models)
+                {
+                    Items.Add(new SelectableItem { Text = model.DisplayName, InternalName = model.Name, IsSelected = false, Id = model.Id });
+                }
+
+                // Select models based on Settings 
+                if (Settings.SelectedModels != null)
+                {
+                    foreach (var item in Items)
+                    {
+                        if (Settings.SelectedModels.Contains(item.InternalName))
+                        {
+                            item.IsSelected = true;
+                        }
+                    }
+                }
+
+                SetUIState(UIState.ModelsLoaded);
+            }
+            catch (Exception ex)
+            {
+                var errorMessage = GetUserFriendlyErrorMessage(ex);
+                SetUIState(UIState.Error, errorMessage);
+                ErrorLogger.Instance.LogError(ex.ToString());
             }
         }
 
         private void InitClient()
         {
-            if (string.IsNullOrEmpty(Settings.AccessToken)) return;
-            var baseUrl = Settings.ServerUrl;
-            _client = new MiviaClient(Settings.AccessToken, baseUrl);
+            if (string.IsNullOrEmpty(Settings.AccessToken))
+            {
+                _client?.Dispose();
+                _client = null;
+                return;
+            }
+            
+            // Only recreate client if necessary
+            if (_client == null || _client.AccessToken != Settings.AccessToken || _client.BaseUrl != Settings.ServerUrl)
+            {
+                _client?.Dispose();
+                var baseUrl = Settings.ServerUrl;
+                _client = new MiviaClient(Settings.AccessToken, baseUrl);
+            }
         }
 
         private void InitWatcher()
@@ -262,10 +363,24 @@ namespace MiviaDesktop
             }
         }
 
-        private void btnSave_Click(object sender, RoutedEventArgs e)
+        private async void btnSave_Click(object sender, RoutedEventArgs e)
         {
-            // Convert _items to a comma-separated string
-            // var itemsString = string.Join(", ", _items.Select(item => item.Text));
+            // Ensure models are loaded before saving
+            if (!ValidateApiKey())
+            {
+                MessageBox.Show("Please enter a valid API key before saving.", "API Key Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (Items.Count == 0)
+            {
+                await LoadModelsAsync();
+                if (Items.Count == 0)
+                {
+                    MessageBox.Show("Unable to load models. Please check your API key and internet connection.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+            }
 
             // Get the configuration file
             var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
@@ -273,16 +388,13 @@ namespace MiviaDesktop
 
             // Add or update the settings
             config.AppSettings.Settings.Remove("Models");
-            // join selected models with comma
             config.AppSettings.Settings.Add("Models", string.Join(",", selectedModels));
-
 
             config.AppSettings.Settings.Remove("AccessToken");
             config.AppSettings.Settings.Add("AccessToken", Settings.AccessToken);
 
             config.AppSettings.Settings.Remove("InputDirectory");
             config.AppSettings.Settings.Add("InputDirectory", Settings.InputDirectory);
-
 
             // Save the configuration file
             config.Save(ConfigurationSaveMode.Modified);
@@ -299,11 +411,74 @@ namespace MiviaDesktop
         {
             // Set the AccessToken variable to the password entered by the user
             Settings.AccessToken = pbPassword.Password;
+            
+            // Debounce the API key input to avoid multiple rapid API calls
+            _apiKeyDebounceTimer.Stop();
+            
+            if (string.IsNullOrWhiteSpace(Settings.AccessToken))
+            {
+                ClearModels();
+            }
+            else
+            {
+                _apiKeyDebounceTimer.Start();
+            }
         }
 
         private bool IsDirectoryExists(string path)
         {
             return Directory.Exists(path);
+        }
+
+        private string GetUserFriendlyErrorMessage(Exception ex)
+        {
+            return ex switch
+            {
+                HttpRequestException httpEx when httpEx.Message.Contains("401") || httpEx.Message.Contains("403") ||
+                                                httpEx.Message.Contains("unauthorised") || httpEx.Message.Contains("unauthorized") =>
+                    "Invalid API key. Please check your access token.",
+                HttpRequestException httpEx when httpEx.Message.Contains("404") =>
+                    "Models endpoint not found. Please check server configuration.",
+                HttpRequestException httpEx when httpEx.Message.Contains("500") =>
+                    "Server error. Please try again later.",
+                TaskCanceledException => "Request timed out. Please try again.",
+                HttpRequestException => "Network error. Please check your internet connection.",
+                _ => "Failed to load models. Please try again."
+            };
+        }
+
+        private enum UIState
+        {
+            ApiKeyRequired,
+            Loading,
+            Error,
+            ModelsLoaded
+        }
+
+        private void SetUIState(UIState state, string message = "")
+        {
+            switch (state)
+            {
+                case UIState.ApiKeyRequired:
+                    tbModelStatus.Text = "Enter your API key to load available models";
+                    tbModelStatus.Visibility = Visibility.Visible;
+                    lbItems.Visibility = Visibility.Collapsed;
+                    break;
+                case UIState.Loading:
+                    tbModelStatus.Text = "Loading models...";
+                    tbModelStatus.Visibility = Visibility.Visible;
+                    lbItems.Visibility = Visibility.Collapsed;
+                    break;
+                case UIState.Error:
+                    tbModelStatus.Text = $"Error: {message}";
+                    tbModelStatus.Visibility = Visibility.Visible;
+                    lbItems.Visibility = Visibility.Collapsed;
+                    break;
+                case UIState.ModelsLoaded:
+                    tbModelStatus.Visibility = Visibility.Collapsed;
+                    lbItems.Visibility = Visibility.Visible;
+                    break;
+            }
         }
 
         private void LoadSettings()
@@ -330,6 +505,34 @@ namespace MiviaDesktop
 
             Settings.ServerUrl = ConfigurationManager.AppSettings["ServerUrl"];
             tbtInputDirectory.Text = Settings.InputDirectory;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    _client?.Dispose();
+                    _watcher?.Stop();
+                    _jobsTimer?.Dispose();
+                    _apiKeyDebounceTimer?.Dispose();
+                    _taskbarIcon?.Dispose();
+                }
+                _disposed = true;
+            }
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
+            Dispose();
         }
     }
 }
