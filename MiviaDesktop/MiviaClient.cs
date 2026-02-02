@@ -4,6 +4,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using MiviaDesktop.Entities;
@@ -25,6 +27,26 @@ namespace MiviaDesktop
 
         public string AccessToken => _accessToken;
         public string BaseUrl => _baseUrl;
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int GetLongPathName(string shortPath, StringBuilder longPath, int bufferSize);
+
+        /// <summary>
+        /// Converts Windows 8.3 short path to long path. Returns original path if conversion fails.
+        /// </summary>
+        private static string GetLongPath(string path)
+        {
+            var buffer = new StringBuilder(260);
+            int result = GetLongPathName(path, buffer, buffer.Capacity);
+
+            if (result > buffer.Capacity)
+            {
+                buffer.Capacity = result;
+                result = GetLongPathName(path, buffer, buffer.Capacity);
+            }
+
+            return result > 0 ? buffer.ToString() : path;
+        }
 
         public MiviaClient(string accessToken, string? baseUrl = null)
         {
@@ -91,8 +113,9 @@ namespace MiviaDesktop
             // Create ByteArrayContent with the file data
             var fileContent = new ByteArrayContent(data);
 
-            // Get the original file name
-            var fileName = Path.GetFileName(filePath);
+            // Convert short path to long path to preserve original filename
+            var longPath = GetLongPath(filePath);
+            var fileName = Path.GetFileName(longPath);
 
             // Set the content disposition headers
             fileContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
