@@ -46,6 +46,7 @@ namespace MiviaDesktop
         private Timer _jobsTimer = new Timer();
         private Timer _apiKeyDebounceTimer = new Timer();
         private bool _disposed = false;
+        private bool _isInitializing = true;
 
         public ObservableCollection<SelectableItem> Items
         {
@@ -122,7 +123,6 @@ namespace MiviaDesktop
         private async void Window_Loaded(object sender, RoutedEventArgs e)
         {
             LoadSettings();
-            InitApiKeyDebounceTimer();
 
             if (ValidateApiKey())
             {
@@ -133,6 +133,8 @@ namespace MiviaDesktop
                 ShowApiKeyRequiredState();
             }
 
+            _isInitializing = false;
+            InitApiKeyDebounceTimer();
             InitWatcher();
             InitClient();
             InitJobTimer();
@@ -453,6 +455,7 @@ namespace MiviaDesktop
         private void pbPassword_PasswordChanged(object sender, RoutedEventArgs e)
         {
             Settings.AccessToken = pbPassword.Password;
+            if (_isInitializing) return;
 
             _apiKeyDebounceTimer.Stop();
 
