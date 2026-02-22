@@ -6,6 +6,9 @@
         mc:Ignorable="d"
         Loaded="Window_Loaded"
         Title="MiViA Desktop" Height="350" Width="400" SizeToContent="Height" >
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
     <StackPanel HorizontalAlignment="Stretch" x:Name="spMain" Margin="10">
         <GroupBox Header="Access Token">
             <PasswordBox Margin="10" x:Name="pbPassword" PasswordChanged="pbPassword_PasswordChanged" />
@@ -30,7 +33,15 @@
                     <ListBox ItemsSource="{Binding Items}" SelectionMode="Extended" x:Name="lbItems">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <CheckBox Content="{Binding Text}" IsChecked="{Binding IsSelected}" />
+                                <StackPanel>
+                                    <CheckBox Content="{Binding Text}" IsChecked="{Binding IsSelected}" />
+                                    <ComboBox ItemsSource="{Binding Customizations}"
+                                              DisplayMemberPath="Name"
+                                              SelectedValuePath="Id"
+                                              SelectedValue="{Binding SelectedCustomizationId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              Visibility="{Binding HasCustomizations, Converter={StaticResource BoolToVisibility}}"
+                                              Margin="20,2,0,4" />
+                                </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>

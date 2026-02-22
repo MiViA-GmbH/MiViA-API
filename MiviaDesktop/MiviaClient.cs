@@ -84,14 +84,41 @@ namespace MiviaDesktop
             }
         }
 
-        public async Task<RemoteJob?> RunModel(string imageId, string modelId)
+        /// <summary>
+        /// Fetches available customization groups for a model assigned to current user.
+        /// </summary>
+        public async Task<ModelCustomization[]> GetModelCustomizations(string modelId)
         {
-            var jsonContent = JsonContent.Create(new
+            try
             {
-                imageIds = new[] { imageId },
-                modelId = modelId,
-                source = "API"
-            });
+                var response = await _client.GetAsync($"/api/models/{modelId}/customizations");
+                if (!response.IsSuccessStatusCode) return Array.Empty<ModelCustomization>();
+
+                var jsonResponse = await response.Content.ReadAsStringAsync();
+                var items = JsonSerializer.Deserialize<ModelCustomizationResponse[]>(jsonResponse, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                return items?.Select(i => new ModelCustomization
+                {
+                    Id = i.Id,
+                    Name = i.Name?.En ?? ""
+                }).ToArray() ?? Array.Empty<ModelCustomization>();
+            }
+            catch
+            {
+                return Array.Empty<ModelCustomization>();
+            }
+        }
+
+        public async Task<RemoteJob?> RunModel(string imageId, string modelId, string? customizationId = null)
+        {
+            object body = customizationId != null
+                ? new { imageIds = new[] { imageId }, modelId, customizationId, source = "API" }
+                : new { imageIds = new[] { imageId }, modelId, source = "API" };
+
+            var jsonContent = JsonContent.Create(body);
             var response = await _client.PostAsync(ModelUri, jsonContent);
             if (!response.IsSuccessStatusCode)
             {

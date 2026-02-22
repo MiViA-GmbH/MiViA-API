@@ -24,6 +24,9 @@ namespace MiviaDesktop
         public string InternalName { get; set; } = null!;
         public bool IsSelected { get; set; }
         public string Id { get; set; } = null!;
+        public List<ModelCustomization> Customizations { get; set; } = new();
+        public string? SelectedCustomizationId { get; set; }
+        public bool HasCustomizations => Customizations.Count > 0;
     }
 
     /// <summary>
@@ -120,7 +123,7 @@ namespace MiviaDesktop
         {
             LoadSettings();
             InitApiKeyDebounceTimer();
-            
+
             if (ValidateApiKey())
             {
                 await LoadModelsAsync();
@@ -129,7 +132,7 @@ namespace MiviaDesktop
             {
                 ShowApiKeyRequiredState();
             }
-            
+
             InitWatcher();
             InitClient();
             InitJobTimer();
@@ -221,22 +224,53 @@ namespace MiviaDesktop
                     return;
                 }
 
-                Items.Clear();
-                foreach (var model in models)
+                // Build items with customizations before adding to ObservableCollection
+                // (WPF bindings evaluate on add — items must be fully populated first)
+                var items = models.Select(model => new SelectableItem
                 {
-                    Items.Add(new SelectableItem { Text = model.DisplayName, InternalName = model.Name, IsSelected = false, Id = model.Id });
-                }
+                    Text = model.DisplayName,
+                    InternalName = model.Name,
+                    IsSelected = false,
+                    Id = model.Id
+                }).ToList();
 
-                // Select models based on Settings 
+                // Load customizations for all models in parallel
+                var customizationTasks = items.Select(async item =>
+                {
+                    var customizations = await _client.GetModelCustomizations(item.Id);
+                    item.Customizations = customizations.ToList();
+                }).ToArray();
+                await Task.WhenAll(customizationTasks);
+
+                // Restore selections from Settings
                 if (Settings.SelectedModels != null)
                 {
-                    foreach (var item in Items)
+                    foreach (var item in items)
                     {
                         if (Settings.SelectedModels.Contains(item.InternalName))
                         {
                             item.IsSelected = true;
                         }
                     }
+                }
+
+                if (Settings.SelectedCustomizations != null)
+                {
+                    foreach (var item in items)
+                    {
+                        if (Settings.SelectedCustomizations.TryGetValue(item.InternalName, out var custId)
+                            && item.Customizations.Any(c => c.Id == custId))
+                        {
+                            item.SelectedCustomizationId = custId;
+                        }
+                    }
+                }
+
+                // Add fully populated items to the UI collection
+                Items.Clear();
+                foreach (var item in items)
+                {
+                    Items.Add(item);
                 }
 
                 SetUIState(UIState.ModelsLoaded);
@@ -289,7 +323,7 @@ namespace MiviaDesktop
                 {
                     var imageId = image.Id.ToString();
                     var modelId = model.Id;
-                    var submitedJob = await _client.RunModel(imageId, modelId);
+                    var submitedJob = await _client.RunModel(imageId, modelId, model.SelectedCustomizationId);
                     var job = await _client.GetJob(submitedJob.Id.ToString());
                     if (job == null) continue;
                     _jobs.Add(job);
@@ -386,9 +420,18 @@ namespace MiviaDesktop
             var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
             var selectedModels = Items.Where(item => item.IsSelected).Select(item => item.InternalName).ToList();
 
+            // Build customization selections (modelInternalName:customizationId pairs)
+            var customizationEntries = Items
+                .Where(item => !string.IsNullOrEmpty(item.SelectedCustomizationId))
+                .Select(item => $"{item.InternalName}:{item.SelectedCustomizationId}")
+                .ToList();
+
             // Add or update the settings
             config.AppSettings.Settings.Remove("Models");
             config.AppSettings.Settings.Add("Models", string.Join(",", selectedModels));
+
+            config.AppSettings.Settings.Remove("Customizations");
+            config.AppSettings.Settings.Add("Customizations", string.Join(",", customizationEntries));
 
             config.AppSettings.Settings.Remove("AccessToken");
             config.AppSettings.Settings.Add("AccessToken", Settings.AccessToken);
@@ -409,12 +452,10 @@ namespace MiviaDesktop
 
         private void pbPassword_PasswordChanged(object sender, RoutedEventArgs e)
         {
-            // Set the AccessToken variable to the password entered by the user
             Settings.AccessToken = pbPassword.Password;
-            
-            // Debounce the API key input to avoid multiple rapid API calls
+
             _apiKeyDebounceTimer.Stop();
-            
+
             if (string.IsNullOrWhiteSpace(Settings.AccessToken))
             {
                 ClearModels();
@@ -493,6 +534,21 @@ namespace MiviaDesktop
             if (!string.IsNullOrWhiteSpace(selectedModels))
             {
                 Settings.SelectedModels = selectedModels.Split(',').ToList();
+            }
+
+            // Get the selected customizations from the configuration file
+            var customizations = ConfigurationManager.AppSettings["Customizations"];
+            if (!string.IsNullOrWhiteSpace(customizations))
+            {
+                Settings.SelectedCustomizations = new Dictionary<string, string>();
+                foreach (var entry in customizations.Split(','))
+                {
+                    var parts = entry.Split(':', 2);
+                    if (parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1]))
+                    {
+                        Settings.SelectedCustomizations[parts[0]] = parts[1];
+                    }
+                }
             }
 
             var inputDirectory = ConfigurationManager.AppSettings["InputDirectory"];
