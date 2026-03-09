@@ -30,7 +30,8 @@
                     <Button Content="Browse" Click="btnBrowse_Click" Grid.Column="1" Margin="10" />
                 </Grid>
                 <Grid Grid.Row="1" Margin="10">
-                    <ListBox ItemsSource="{Binding Items}" SelectionMode="Extended" x:Name="lbItems">
+                    <ListBox ItemsSource="{Binding Items}" SelectionMode="Extended" x:Name="lbItems"
+                             MaxHeight="250" ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel>
