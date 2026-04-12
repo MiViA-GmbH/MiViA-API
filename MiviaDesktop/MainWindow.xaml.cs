@@ -79,6 +79,10 @@ namespace MiviaDesktop
         private async void JobsTimerOnTick(object? sender, EventArgs e)
         {
             if (_client == null) return;
+            if (_jobs.Count == 0) return;
+
+            var log = ErrorLogger.Instance;
+            log.LogDebug($"JobsTimerOnTick: polling {_jobs.Count} job(s)");
 
             await Dispatcher.InvokeAsync(SetTaskbarActivityIcon);
 
@@ -86,22 +90,27 @@ namespace MiviaDesktop
             foreach (var job in _jobs)
             {
                 var model = job.Model;
-                var modelName = model.DisplayName.Replace(" ", "_");
-                var path = Path.Join(Settings.InputDirectory, Path.GetFileNameWithoutExtension(job.Image.OrginalFilename) + "-" + modelName);
+                var modelName = model?.DisplayName?.Replace(" ", "_") ?? "unknown";
+                var imageName = job.Image?.OrginalFilename ?? "unknown";
+                var path = Path.Join(Settings.InputDirectory, Path.GetFileNameWithoutExtension(imageName) + "-" + modelName);
                 try
                 {
                     var completed = await _client.IsJobCompleted(job.Id.ToString());
-                    if (!completed) continue;
+                    if (!completed)
+                    {
+                        log.LogDebug($"JobsTimerOnTick: job {job.Id} still pending");
+                        continue;
+                    }
+                    log.LogInfo($"JobsTimerOnTick: job {job.Id} completed, saving report to {path}");
                     await _client.SaveReport(job.Id.ToString(), path);
                 }
                 catch (Exception exception)
                 {
-                    await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowError($"Error while calculating results for image {job.Image.OrginalFilename}"));
-                    ErrorLogger.Instance.LogError(exception.ToString());
-                    // _client.SaveError(path);
+                    await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowError($"Error while calculating results for image {imageName}"));
+                    log.LogError($"JobsTimerOnTick error for job {job.Id} ({imageName}): {exception}");
                 }
 
-                await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowMessage($"Image {job.Image.OrginalFilename} has been processed"));
+                await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowMessage($"Image {imageName} has been processed"));
                 toRemove.Add(job);
             }
 
@@ -138,7 +147,7 @@ namespace MiviaDesktop
             InitWatcher();
             InitClient();
             InitJobTimer();
-            ErrorLogger.Instance.LogError("Application started");
+            ErrorLogger.Instance.LogInfo($"Application started (LogLevel={Settings.LogLevel})");
         }
 
         private void InitJobTimer()
@@ -314,38 +323,68 @@ namespace MiviaDesktop
         {
             if (_client == null) return;
 
+            var log = ErrorLogger.Instance;
+            var fileName = Path.GetFileName(filePath);
+            log.LogInfo($"OnImageCreated: processing {fileName}");
+
             _taskbarIcon.SetActiveIcon();
             try
             {
                 var image = await _client.UploadFile(filePath);
-                if (image == null) return;
+                if (image == null)
+                {
+                    log.LogError($"OnImageCreated: upload returned null for {fileName}");
+                    _taskbarIcon.ShowError($"Failed to upload image {fileName} — no response from server");
+                    return;
+                }
 
                 var selectedModels = Items.Where(item => item.IsSelected).ToList();
+                log.LogInfo($"OnImageCreated: {selectedModels.Count} model(s) selected for imageId={image.Id}");
+
+                if (selectedModels.Count == 0)
+                {
+                    log.LogInfo("OnImageCreated: no models selected, skipping job creation");
+                    return;
+                }
+
                 foreach (var model in selectedModels)
                 {
                     var imageId = image.Id.ToString();
                     var modelId = model.Id;
-                    var submitedJob = await _client.RunModel(imageId, modelId, model.SelectedCustomizationId);
-                    var job = await _client.GetJob(submitedJob.Id.ToString());
-                    if (job == null) continue;
+                    log.LogDebug($"OnImageCreated: running model '{model.Text}' (id={modelId}), customization={model.SelectedCustomizationId ?? "(none)"}");
+
+                    var submittedJob = await _client.RunModel(imageId, modelId, model.SelectedCustomizationId);
+                    if (submittedJob == null)
+                    {
+                        log.LogInfo($"OnImageCreated: image {fileName} already calculated with model '{model.Text}', skipping");
+                        _taskbarIcon.ShowMessage($"Image {fileName} already processed with {model.Text}, skipping");
+                        continue;
+                    }
+
+                    var job = await _client.GetJob(submittedJob.Id.ToString());
+                    if (job == null)
+                    {
+                        log.LogError($"OnImageCreated: GetJob returned null for jobId={submittedJob.Id}");
+                        continue;
+                    }
+
                     _jobs.Add(job);
-                    _taskbarIcon.ShowMessage($"Image {job.Image.OrginalFilename} has been sent for processing");
+                    log.LogInfo($"OnImageCreated: job {job.Id} created for {fileName} with model '{model.Text}'");
+                    _taskbarIcon.ShowMessage($"Image {job.Image?.OrginalFilename ?? fileName} has been sent for processing");
                 }
             }
             catch (Exception e)
             {
-                // If e.Message contains unauthorized, then show message box with error
-                if (e.Message.Contains("unauthorised"))
+                if (e.Message.Contains("unauthorised") || e.Message.Contains("unauthorized"))
                 {
-                    // MessageBox.Show("Invalid access token. Please check your access token.", "MiViA Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     _taskbarIcon.ShowError("Invalid access token. Please verify your access token and valid license.");
-                    ErrorLogger.Instance.LogError("Invalid access token. Please verify your access token and valid license.");
+                    log.LogError("Invalid access token. Please verify your access token and valid license.");
                     return;
                 }
                 else
                 {
-                    _taskbarIcon.ShowError("Error uploading image: " + e.Message);
-                    ErrorLogger.Instance.LogError(e.ToString());
+                    _taskbarIcon.ShowError($"Error processing image {fileName}: {e.Message}");
+                    log.LogError($"OnImageCreated error for {fileName}: {e}");
                 }
             }
         }
@@ -440,6 +479,12 @@ namespace MiviaDesktop
 
             config.AppSettings.Settings.Remove("InputDirectory");
             config.AppSettings.Settings.Add("InputDirectory", Settings.InputDirectory);
+
+            config.AppSettings.Settings.Remove("LogLevel");
+            config.AppSettings.Settings.Add("LogLevel", Settings.LogLevel.ToString());
+
+            // Apply log level immediately
+            ErrorLogger.Instance.Level = Settings.LogLevel;
 
             // Save the configuration file
             config.Save(ConfigurationSaveMode.Modified);
@@ -563,6 +608,15 @@ namespace MiviaDesktop
             }
 
             Settings.ServerUrl = ConfigurationManager.AppSettings["ServerUrl"];
+
+            // Load log level
+            var logLevelStr = ConfigurationManager.AppSettings["LogLevel"];
+            if (Enum.TryParse<LogLevel>(logLevelStr, true, out var logLevel))
+            {
+                Settings.LogLevel = logLevel;
+            }
+            ErrorLogger.Instance.Level = Settings.LogLevel;
+
             tbtInputDirectory.Text = Settings.InputDirectory;
         }
 

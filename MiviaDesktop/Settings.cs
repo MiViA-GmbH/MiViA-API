@@ -14,4 +14,9 @@ public class Settings
     /// Maps model internal name to selected customization ID.
     /// </summary>
     public Dictionary<string, string>? SelectedCustomizations { get; set; }
+
+    /// <summary>
+    /// Controls logging verbosity: Error (default), Info, or Debug.
+    /// </summary>
+    public LogLevel LogLevel { get; set; } = LogLevel.Error;
 }

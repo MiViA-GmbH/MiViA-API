@@ -59,6 +59,8 @@ namespace MiviaDesktop
 
         public async Task<ModelSettings[]?> GetModels()
         {
+            var log = ErrorLogger.Instance;
+            log.LogDebug("GetModels: fetching available models");
             try
             {
                 HttpResponseMessage response = await _client.GetAsync(ModelsUri);
@@ -70,6 +72,7 @@ namespace MiviaDesktop
                     {
                         PropertyNameCaseInsensitive = true
                     });
+                    log.LogDebug($"GetModels: received {modelSettings?.Length ?? 0} model(s)");
                     return modelSettings;
                 }
                 else
@@ -80,7 +83,7 @@ namespace MiviaDesktop
             }
             catch (Exception)
             {
-                throw; // Re-throw to preserve original exception details
+                throw;
             }
         }
 
@@ -114,28 +117,44 @@ namespace MiviaDesktop
 
         public async Task<RemoteJob?> RunModel(string imageId, string modelId, string? customizationId = null)
         {
+            var log = ErrorLogger.Instance;
+            log.LogDebug($"RunModel: imageId={imageId}, modelId={modelId}, customizationId={customizationId ?? "(none)"}");
+
             object body = customizationId != null
                 ? new { imageIds = new[] { imageId }, modelId, customizationId, source = "API" }
                 : new { imageIds = new[] { imageId }, modelId, source = "API" };
 
             var jsonContent = JsonContent.Create(body);
             var response = await _client.PostAsync(ModelUri, jsonContent);
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                throw new Exception(error);
-            }
 
             var jsonResponse = await response.Content.ReadAsStringAsync();
+            log.LogDebug($"RunModel response: HTTP {(int)response.StatusCode}, body={jsonResponse}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"RunModel failed with HTTP {(int)response.StatusCode}: {jsonResponse}");
+            }
+
             var jobs = Serialization.Deserialize<RemoteJob[]>(jsonResponse);
-            return jobs?.FirstOrDefault();
+            if (jobs == null || jobs.Length == 0)
+            {
+                log.LogInfo($"RunModel returned empty array for imageId={imageId}, modelId={modelId} — image already calculated");
+                return null;
+            }
+
+            log.LogInfo($"RunModel created job {jobs[0].Id} for imageId={imageId}");
+            return jobs[0];
         }
 
 
         public async Task<RemoteImage?> UploadFile(string filePath)
         {
+            var log = ErrorLogger.Instance;
+            log.LogInfo($"UploadFile: {filePath}");
+
             // Read the file content as bytes
             byte[] data = await File.ReadAllBytesAsync(filePath);
+            log.LogDebug($"UploadFile: read {data.Length} bytes");
 
             // Create ByteArrayContent with the file data
             var fileContent = new ByteArrayContent(data);
@@ -170,20 +189,31 @@ namespace MiviaDesktop
             if (response.IsSuccessStatusCode)
             {
                 var jsonResponse = await response.Content.ReadAsStringAsync();
+                log.LogDebug($"UploadFile response: {jsonResponse}");
                 var images = JsonSerializer.Deserialize<RemoteImage[]>(jsonResponse);
-                return images?.FirstOrDefault();
+                var image = images?.FirstOrDefault();
+                if (image != null)
+                {
+                    log.LogInfo($"UploadFile: uploaded as imageId={image.Id}");
+                }
+                else
+                {
+                    log.LogError($"UploadFile: server returned success but no image data. Response: {jsonResponse}");
+                }
+                return image;
             }
             else
             {
                 var error = await response.Content.ReadAsStringAsync();
-                throw new Exception(error);
+                throw new Exception($"UploadFile failed with HTTP {(int)response.StatusCode}: {error}");
             }
         }
 
         public async Task<bool> IsJobCompleted(string jobId)
         {
             var job = await GetJob(jobId);
-            if (job.Status == JobStatus.FAILED) throw new Exception(job.Error);
+            ErrorLogger.Instance.LogDebug($"IsJobCompleted: jobId={jobId}, status={job.Status}, resultId={job.ResultId}");
+            if (job.Status == JobStatus.FAILED) throw new Exception(job.Error ?? "Job failed with no error message");
             if (job.Status == JobStatus.PENDING) return false;
             return job?.ResultId != null;
         }

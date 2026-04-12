@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:MiviaDesktop"
         mc:Ignorable="d"
         Loaded="Window_Loaded"
         Title="MiViA Desktop" Height="350" Width="400" SizeToContent="Height" >
@@ -55,6 +56,18 @@
                                Visibility="Visible" />
                 </Grid>
             </Grid>
+        </GroupBox>
+        <GroupBox Header="Logging">
+            <StackPanel Orientation="Horizontal" Margin="10">
+                <TextBlock Text="Log level:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <ComboBox x:Name="cbLogLevel" Width="120"
+                          SelectedValue="{Binding Settings.LogLevel, Mode=TwoWay}"
+                          SelectedValuePath="Tag">
+                    <ComboBoxItem Content="Error (default)" Tag="{x:Static local:LogLevel.Error}" />
+                    <ComboBoxItem Content="Info" Tag="{x:Static local:LogLevel.Info}" />
+                    <ComboBoxItem Content="Debug" Tag="{x:Static local:LogLevel.Debug}" />
+                </ComboBox>
+            </StackPanel>
         </GroupBox>
         <StackPanel HorizontalAlignment="right" Margin="10">
             <Grid>

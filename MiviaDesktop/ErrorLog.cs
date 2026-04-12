@@ -1,7 +1,14 @@
-﻿namespace MiviaDesktop;
+namespace MiviaDesktop;
 
 using System;
 using System.IO;
+
+public enum LogLevel
+{
+    Error = 0,
+    Info = 1,
+    Debug = 2
+}
 
 public sealed class ErrorLogger
 {
@@ -10,14 +17,20 @@ public sealed class ErrorLogger
 
     private readonly string _logFilePath;
 
+    /// <summary>
+    /// Controls which log messages are written. Default: Error only.
+    /// Set to Info or Debug for more verbose logging.
+    /// </summary>
+    public LogLevel Level { get; set; } = LogLevel.Error;
+
     // Private constructor to prevent direct instantiation
     private ErrorLogger()
     {
         string executableDirectory = AppDomain.CurrentDomain.BaseDirectory;
         string logsDirectory = Path.Combine(executableDirectory, "log");
-        Directory.CreateDirectory(logsDirectory); // Create the "log" directory if it doesn't exist
+        Directory.CreateDirectory(logsDirectory);
 
-        string logFileName = $"error_log_{DateTime.Now:yyyyMMddHHmmss}.json";
+        string logFileName = $"log_{DateTime.Now:yyyyMMddHHmmss}.json";
         _logFilePath = Path.Combine(logsDirectory, logFileName);
     }
 
@@ -41,18 +54,43 @@ public sealed class ErrorLogger
         }
     }
 
-    // Log an error
+    /// <summary>
+    /// Log an error message (always logged regardless of level).
+    /// </summary>
     public void LogError(string errorMessage)
     {
-        ErrorLogEntry logEntry = new ErrorLogEntry
+        WriteEntry("ERROR", errorMessage);
+    }
+
+    /// <summary>
+    /// Log an informational message (logged when Level >= Info).
+    /// </summary>
+    public void LogInfo(string message)
+    {
+        if (Level < LogLevel.Info) return;
+        WriteEntry("INFO", message);
+    }
+
+    /// <summary>
+    /// Log a debug message (logged only when Level == Debug).
+    /// </summary>
+    public void LogDebug(string message)
+    {
+        if (Level < LogLevel.Debug) return;
+        WriteEntry("DEBUG", message);
+    }
+
+    private void WriteEntry(string level, string message)
+    {
+        var logEntry = new ErrorLogEntry
         {
             Timestamp = DateTime.Now,
-            Message = errorMessage
+            Level = level,
+            Message = message
         };
 
         string jsonData = System.Text.Json.JsonSerializer.Serialize(logEntry);
 
-        // Append the log entry to the log file
         try
         {
             using (StreamWriter writer = File.AppendText(_logFilePath))
@@ -60,7 +98,7 @@ public sealed class ErrorLogger
                 writer.WriteLine(jsonData);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Logs cannot be written to the log file
         }
@@ -70,5 +108,6 @@ public sealed class ErrorLogger
 public class ErrorLogEntry
 {
     public DateTime Timestamp { get; set; }
-    public string Message { get; set; }
+    public string Level { get; set; } = "";
+    public string Message { get; set; } = "";
 }
