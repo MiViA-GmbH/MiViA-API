@@ -480,12 +480,6 @@ namespace MiviaDesktop
             config.AppSettings.Settings.Remove("InputDirectory");
             config.AppSettings.Settings.Add("InputDirectory", Settings.InputDirectory);
 
-            config.AppSettings.Settings.Remove("LogLevel");
-            config.AppSettings.Settings.Add("LogLevel", Settings.LogLevel.ToString());
-
-            // Apply log level immediately
-            ErrorLogger.Instance.Level = Settings.LogLevel;
-
             // Save the configuration file
             config.Save(ConfigurationSaveMode.Modified);
 
