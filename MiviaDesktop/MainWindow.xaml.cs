@@ -79,15 +79,44 @@ namespace MiviaDesktop
         private async void JobsTimerOnTick(object? sender, EventArgs e)
         {
             if (_client == null) return;
-            if (_jobs.Count == 0) return;
+            lock (_jobs) if (_jobs.Count == 0) return;
 
+            // The timer keeps firing while this handler awaits. Report generation must stay
+            // serialized: a second POST supersedes our own still-queued report server-side.
+            _jobsTimer.Stop();
+            try
+            {
+                await PollJobs();
+            }
+            catch (Exception ex)
+            {
+                // async void: an escaping exception would take the process down with the queue.
+                ErrorLogger.Instance.LogError($"PollJobs crashed: {ex}");
+            }
+            finally
+            {
+                // The poll can outlive an explicit exit; restarting a disposed timer would throw
+                // out of this async void and take the process with it.
+                if (!_disposed) _jobsTimer.Start();
+            }
+        }
+
+        private async Task PollJobs()
+        {
             var log = ErrorLogger.Instance;
-            log.LogDebug($"JobsTimerOnTick: polling {_jobs.Count} job(s)");
+
+            // The key box can null or replace _client from the UI thread while we poll for minutes.
+            var client = _client;
+            if (client == null) return;
+            log.LogDebug($"PollJobs: polling {_jobs.Count} job(s)");
 
             await Dispatcher.InvokeAsync(SetTaskbarActivityIcon);
 
             var toRemove = new HashSet<RemoteJob>();
-            foreach (var job in _jobs)
+            RemoteJob[] snapshot;
+            lock (_jobs) snapshot = _jobs.ToArray();
+
+            foreach (var job in snapshot)
             {
                 var model = job.Model;
                 var modelName = model?.DisplayName?.Replace(" ", "_") ?? "unknown";
@@ -95,26 +124,37 @@ namespace MiviaDesktop
                 var path = Path.Join(Settings.InputDirectory, Path.GetFileNameWithoutExtension(imageName) + "-" + modelName);
                 try
                 {
-                    var completed = await _client.IsJobCompleted(job.Id.ToString());
+                    var completed = await client.IsJobCompleted(job.Id.ToString());
                     if (!completed)
                     {
-                        log.LogDebug($"JobsTimerOnTick: job {job.Id} still pending");
+                        log.LogDebug($"PollJobs: job {job.Id} still pending");
                         continue;
                     }
-                    log.LogInfo($"JobsTimerOnTick: job {job.Id} completed, saving report to {path}");
-                    await _client.SaveReport(job.Id.ToString(), path);
+                    log.LogInfo($"PollJobs: job {job.Id} completed, saving report to {path}");
+                    await client.SaveReport(job.Id.ToString(), path);
+                }
+                catch (Exception transient) when (transient is MiviaTransientException
+                                                  || transient is HttpRequestException
+                                                  || transient is TaskCanceledException
+                                                  || transient is ObjectDisposedException)
+                {
+                    // Keep the job queued and try again on the next tick, without spamming toasts.
+                    log.LogInfo($"PollJobs: retrying job {job.Id} ({imageName}) later: {transient.Message}");
+                    continue;
                 }
                 catch (Exception exception)
                 {
                     await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowError($"Error while calculating results for image {imageName}"));
-                    log.LogError($"JobsTimerOnTick error for job {job.Id} ({imageName}): {exception}");
+                    log.LogError($"PollJobs error for job {job.Id} ({imageName}): {exception}");
+                    toRemove.Add(job);
+                    continue;
                 }
 
                 await Dispatcher.InvokeAsync(() => _taskbarIcon.ShowMessage($"Image {imageName} has been processed"));
                 toRemove.Add(job);
             }
 
-            _jobs.RemoveAll(toRemove.Contains);
+            lock (_jobs) _jobs.RemoveAll(toRemove.Contains);
         }
 
         private void SetTaskbarActivityIcon()
@@ -368,7 +408,7 @@ namespace MiviaDesktop
                         continue;
                     }
 
-                    _jobs.Add(job);
+                    lock (_jobs) _jobs.Add(job);
                     log.LogInfo($"OnImageCreated: job {job.Id} created for {fileName} with model '{model.Text}'");
                     _taskbarIcon.ShowMessage($"Image {job.Image?.OrginalFilename ?? fileName} has been sent for processing");
                 }

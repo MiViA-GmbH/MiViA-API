@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -14,6 +15,12 @@ namespace MiviaDesktop
 {
     public class MiviaClient : IDisposable
     {
+        // One handler for every presigned download: a per-download HttpClient leaks sockets.
+        private static readonly HttpClient DownloadClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+
+        // jobId -> reportId we are already waiting for. Posting again would supersede it.
+        private readonly Dictionary<string, string> _pendingReports = new Dictionary<string, string>();
+
         private readonly string _accessToken;
         private readonly HttpClient _client;
         private readonly string _baseUrl;
@@ -23,7 +30,10 @@ namespace MiviaDesktop
         private const string UploadUri = "/api/image";
         private const string ModelsUri = "/api/settings/available-models";
         private const string ModelUri = "/api/jobs";
-        private const string ReportUri = "/api/reports/pdf2";
+        private const string ReportsUri = "/api/reports";
+
+        private const int ReportPollIntervalMs = 3000;
+        private const int ReportTimeoutMs = 5 * 60 * 1000;
 
         public string AccessToken => _accessToken;
         public string BaseUrl => _baseUrl;
@@ -213,25 +223,159 @@ namespace MiviaDesktop
         {
             var job = await GetJob(jobId);
             ErrorLogger.Instance.LogDebug($"IsJobCompleted: jobId={jobId}, status={job.Status}, resultId={job.ResultId}");
-            if (job.Status == JobStatus.FAILED) throw new Exception(job.Error ?? "Job failed with no error message");
+            if (job.Status == JobStatus.FAILED) throw new MiviaPermanentException(job.Error ?? "Job failed with no error message");
             if (job.Status == JobStatus.PENDING) return false;
             return job?.ResultId != null;
         }
 
+        /// <summary>
+        /// Reports are asynchronous: POST returns 202 with a report id, the row is polled until it
+        /// is terminal, and the file itself comes from a presigned URL.
+        /// Only one report per account may be generated at a time - the server cancels a caller's
+        /// still-queued reports whenever that caller posts a new one.
+        /// </summary>
         public async Task SaveReport(string jobId, string reportPathWithoutExtension)
         {
-            var offset = -DateTimeOffset.Now.Offset.TotalMinutes;
+            var log = ErrorLogger.Instance;
 
-            var jsonContent = JsonContent.Create(new
+            // A CANCELLED report means somebody (a second window, the web UI) superseded ours.
+            // One retry is enough; a second cancellation means we are fighting for the slot.
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                jobsIds = new[] { jobId },
-                tzOffset = offset
-            });
-            var response = await _client.PostAsync(ReportUri, jsonContent);
-            using (var fs = new FileStream(reportPathWithoutExtension + ".pdf", FileMode.CreateNew))
-            {
-                await response.Content.CopyToAsync(fs);
+                RemoteReport report;
+                if (_pendingReports.TryGetValue(jobId, out var outstanding))
+                {
+                    // Resume. A fresh POST here would cancel the very report we are waiting for,
+                    // so a report slower than our poll window must never be re-requested.
+                    report = await WaitForReport(outstanding);
+                }
+                else
+                {
+                    var created = await CreateReport(jobId);
+                    _pendingReports[jobId] = created.ReportId.ToString();
+                    log.LogDebug($"SaveReport: report {created.ReportId} created with status {created.Status}");
+
+                    report = created.Status == ReportStatus.PENDING
+                        ? await WaitForReport(created.ReportId.ToString())
+                        : new RemoteReport { Id = created.ReportId, Status = created.Status };
+                }
+
+                switch (report.Status)
+                {
+                    case ReportStatus.DONE:
+                        await DownloadReport(report.Id.ToString(), reportPathWithoutExtension);
+                        _pendingReports.Remove(jobId);
+                        return;
+                    case ReportStatus.FAILED:
+                        _pendingReports.Remove(jobId);
+                        throw new MiviaPermanentException(report.Error ?? "Report generation failed");
+                    case ReportStatus.CANCELLED:
+                        _pendingReports.Remove(jobId);
+                        log.LogInfo($"SaveReport: report {report.Id} was superseded, retrying");
+                        continue;
+                    default:
+                        // Keep the id: the next tick resumes this report rather than starting a new one.
+                        throw new MiviaTransientException($"Report {report.Id} still pending after {ReportTimeoutMs / 1000}s");
+                }
             }
+
+            throw new MiviaTransientException("Report was superseded twice in a row");
+        }
+
+        private async Task<CreatedReport> CreateReport(string jobId)
+        {
+            object body = TimeZoneInfo.TryConvertWindowsIdToIanaId(TimeZoneInfo.Local.Id, out var iana)
+                ? new { jobsIds = new[] { jobId }, timezone = iana }
+                // tzOffset is deprecated server-side but still honoured, and it is all we have
+                // when Windows has no ICU mapping for the local zone.
+                : (object)new { jobsIds = new[] { jobId }, tzOffset = -DateTimeOffset.Now.Offset.TotalMinutes };
+
+            var response = await _client.PostAsync($"{ReportsUri}/pdf", JsonContent.Create(body));
+            var json = await response.Content.ReadAsStringAsync();
+            ThrowForStatus(response, json, "CreateReport");
+            return Serialization.Deserialize<CreatedReport>(json);
+        }
+
+        public async Task<RemoteReport> GetReport(string reportId)
+        {
+            var response = await _client.GetAsync($"{ReportsUri}/{reportId}");
+            var json = await response.Content.ReadAsStringAsync();
+            ThrowForStatus(response, json, "GetReport");
+            return Serialization.Deserialize<RemoteReport>(json);
+        }
+
+        private async Task<RemoteReport> WaitForReport(string reportId)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(ReportTimeoutMs);
+            var report = await GetReport(reportId);
+            while (report.Status == ReportStatus.PENDING && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(ReportPollIntervalMs);
+                report = await GetReport(reportId);
+            }
+
+            return report;
+        }
+
+        private async Task DownloadReport(string reportId, string reportPathWithoutExtension)
+        {
+            var response = await _client.GetAsync($"{ReportsUri}/{reportId}/download");
+            var json = await response.Content.ReadAsStringAsync();
+            ThrowForStatus(response, json, "DownloadReport");
+
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("url", out var urlElement)
+                || urlElement.ValueKind != JsonValueKind.String)
+            {
+                // { "status": "expired" } - the bucket lifecycle already removed the object.
+                throw new MiviaPermanentException($"Report {reportId} is no longer available for download");
+            }
+
+            // Download beside the target and rename once complete, so an interrupted transfer
+            // never leaves a truncated pdf that would block every later attempt.
+            var target = reportPathWithoutExtension + ".pdf";
+            var partial = target + ".part";
+            try
+            {
+                // The presigned URL carries its own signature; our authorization header would break it.
+                using (var file = await DownloadClient.GetAsync(urlElement.GetString(), HttpCompletionOption.ResponseHeadersRead))
+                {
+                    if (!file.IsSuccessStatusCode)
+                    {
+                        throw new MiviaTransientException($"Report download failed with HTTP {(int)file.StatusCode}");
+                    }
+
+                    using var fs = new FileStream(partial, FileMode.Create);
+                    await file.Content.CopyToAsync(fs);
+                }
+
+                // No overwrite, same as before: an existing report is left untouched.
+                File.Move(partial, target);
+            }
+            catch
+            {
+                try { File.Delete(partial); } catch { /* best effort */ }
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Splits API failures into "try again next tick" and "this job is done for".
+        /// 429 is the per-account cap of 3 reports in flight, not a rate limit.
+        /// </summary>
+        private static void ThrowForStatus(HttpResponseMessage response, string body, string context)
+        {
+            if (response.IsSuccessStatusCode) return;
+
+            var code = (int)response.StatusCode;
+            var message = $"{context} failed with HTTP {code}: {body}";
+
+            if (code == 429 || code >= 500)
+            {
+                throw new MiviaTransientException(message);
+            }
+
+            throw new MiviaPermanentException(message);
         }
 
         public void SaveError(string path)
@@ -273,13 +417,8 @@ namespace MiviaDesktop
         public async Task<RemoteJob> GetJob(string jobId)
         {
             var response = await _client.GetAsync($"{ModelUri}/{jobId}");
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                throw new Exception(error);
-            }
-
             var jsonResponse = await response.Content.ReadAsStringAsync();
+            ThrowForStatus(response, jsonResponse, "GetJob");
             return Serialization.Deserialize<RemoteJob>(jsonResponse);
         }
     }
